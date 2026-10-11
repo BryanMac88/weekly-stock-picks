@@ -1,0 +1,15 @@
+# Number of stocks to recommend
+top_n: 10
+
+# Filters
+min_price: 5.0
+min_avg_volume: 500000
+lookback_days: 120
+
+# Scoring weights (must sum roughly to 1.0)
+weights:
+  ret_5d: 0.30
+  ret_10d: 0.25
+  rsi_score: 0.15
+  volume_ratio: 0.15
+  above_sma20: 0.15
