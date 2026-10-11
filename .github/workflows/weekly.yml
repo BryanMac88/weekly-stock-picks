@@ -2,9 +2,8 @@ name: Weekly Stock Ranking
 
 on:
   schedule:
-    # Every Sunday at 18:00 UTC
     - cron: "0 18 * * 0"
-  workflow_dispatch:   # allows manual run
+  workflow_dispatch:
 
 jobs:
   rank:
@@ -25,8 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Write credentials
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+      - name: Write Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+          # Quick validation
+          python -c "import json; json.load(open('credentials.json')); print('credentials.json is valid JSON')"
 
       - name: Run ranking + accuracy update
         env:
