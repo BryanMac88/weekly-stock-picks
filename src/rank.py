@@ -5,9 +5,8 @@ Runs every Sunday via GitHub Actions.
 """
 
 import os
-import json
 import yaml
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -105,7 +104,8 @@ def score_ticker(df: pd.DataFrame) -> dict | None:
     )
 
     return {
-        "ticker": None,  # filled later
+        "ticker": None,          # filled later
+        "name": None,            # filled later
         "price": round(price, 2),
         "ret_5d": round(float(last["ret_5d"]) * 100, 2),
         "ret_10d": round(float(last["ret_10d"]) * 100, 2),
@@ -116,7 +116,7 @@ def score_ticker(df: pd.DataFrame) -> dict | None:
         "avg_volume": int(avg_vol),
     }
 
-def rank_stocks(tickers: list[str]) -> pd.DataFrame:
+def rank_stocks(tickers: list[str], name_map: dict[str, str]) -> pd.DataFrame:
     data = download_data(tickers)
     rows = []
 
@@ -124,6 +124,7 @@ def rank_stocks(tickers: list[str]) -> pd.DataFrame:
         s = score_ticker(df)
         if s:
             s["ticker"] = t
+            s["name"] = name_map.get(t, t)   # full company name
             rows.append(s)
 
     if not rows:
@@ -156,7 +157,7 @@ def update_accuracy(gc, sheet_id: str, previous_picks: list[dict]):
         ])
 
     # Determine last Monday and Friday
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     # We run on Sunday → previous week is Mon–Fri of the week before
     last_friday = today - timedelta(days=(today.weekday() + 3) % 7 + 1)
     last_monday = last_friday - timedelta(days=4)
@@ -216,19 +217,23 @@ def write_current_picks(gc, sheet_id: str, ranked: pd.DataFrame, week_label: str
     try:
         ws = sh.worksheet("Current Top 10")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="Current Top 10", rows=50, cols=12)
+        ws = sh.add_worksheet(title="Current Top 10", rows=50, cols=14)
 
     ws.clear()
-    headers = ["Rank", "Ticker", "Price", "Score", "5d %", "10d %", "RSI",
-               "Vol Ratio", "Above SMA20", "Avg Volume", "Week", "Generated"]
+    headers = [
+        "Rank", "Ticker", "Company Name", "Price", "Score",
+        "5d %", "10d %", "RSI", "Vol Ratio", "Above SMA20",
+        "Avg Volume", "Week", "Generated"
+    ]
     ws.append_row(headers)
 
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     rows = []
     for i, r in ranked.iterrows():
         rows.append([
             i + 1,
             r["ticker"],
+            r["name"],                 # ← full company name
             r["price"],
             r["score"],
             r["ret_5d"],
@@ -246,7 +251,7 @@ def write_current_picks(gc, sheet_id: str, ranked: pd.DataFrame, week_label: str
     try:
         hist = sh.worksheet("History")
     except gspread.WorksheetNotFound:
-        hist = sh.add_worksheet(title="History", rows=5000, cols=12)
+        hist = sh.add_worksheet(title="History", rows=5000, cols=14)
         hist.append_row(headers)
 
     hist.append_rows(rows)
@@ -279,18 +284,18 @@ def main():
         update_accuracy(gc, sheet_id, previous_picks)
 
     # 3. Rank this week's stocks
-    tickers = get_sp500_tickers()
-    ranked = rank_stocks(tickers)
+    tickers, name_map = get_sp500_tickers()
+    ranked = rank_stocks(tickers, name_map)
 
     if ranked.empty:
         print("No stocks passed filters!")
         return
 
     print("\nTop 10 this week:")
-    print(ranked[["ticker", "score", "ret_5d", "rsi"]].to_string(index=False))
+    print(ranked[["ticker", "name", "score", "ret_5d", "rsi"]].to_string(index=False))
 
     # 4. Write new picks
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     # Next Monday
     days_ahead = (7 - today.weekday()) % 7
     next_monday = today + timedelta(days=days_ahead or 7)
